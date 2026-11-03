@@ -413,3 +413,75 @@ node /tmp/extract.js "$APP/Contents/Resources/app.asar" "dsh-api-session-control
 先跑 §2 的自测命令确认 **45 + 50 = 95 条绿**，然后直接看 §3 —— 本次根因、诊断字段、
 排查方法论都在那里。**任何"谱系为空"的报障，第一件事是 curl 一次 lineage 路由看 `reason`**，
 不要再从读代码开始猜。
+
+---
+
+## 11. 公开发布与收录（2026-11-04）
+
+### 状态
+
+- 公开仓库：**https://github.com/Lanstzz/sapi-budget**（public，默认分支 `main`，已加 `dsh-plugin` topic）
+- awesome-dsh-plugin 投稿条目：`data/plugins/Lanstzz__sapi-budget.yml`，`category: usage`
+- 包名从 `@local/sapi-budget` 改为 **`dsh-sapi-budget`**（`@local/*` 是私有 scope，别人装不上）
+
+### 改名引发的连带修改（**做同类改名时照抄这张清单**）
+
+包名不是只改一处。以下全部必须同步，否则插件静默不挂载：
+
+| 位置 | 值 | 不改的后果 |
+| --- | --- | --- |
+| `package.json` `name` | `dsh-sapi-budget` | 装出来的包名错 |
+| `cordis.patch.yml` 的 `name:` | `dsh-sapi-budget` | bundle 找不到包，插件不激活 |
+| `client.js` 的 `load({ id })` | `dsh-sapi-budget` | 客户端半不注册。loader 用 `stripClientSuffix()` 把 `<id>/client` 归一到裸包名，所以 id 必须等于包名 |
+| profile `package.json` 的 `dependencies` 键 | `dsh-sapi-budget` | 依赖解析失败 |
+| profile `dsh.profile.bundles` 数组 | `dsh-sapi-budget` | bundle 不加载 |
+| `node_modules/<名字>` 符号链接 | 重命名为新包名 | 同上 |
+
+**验证方式（不要只看文件内容）**：
+
+```sh
+cd ~/.dsh/profiles/desktop && node -e "
+const {createRequire}=require('module');
+const r=createRequire('$HOME/.dsh/profiles/desktop/package.json');
+for (const s of ['dsh-sapi-budget','dsh-sapi-budget/client']) console.log(s,'->',r.resolve(s));
+"
+```
+
+⚠️ `require.resolve('dsh-sapi-budget/package.json')` 会报 `ERR_PACKAGE_PATH_NOT_EXPORTED`——
+那是 `exports` 字段正确生效的表现，**不是**包有问题。要验证就解析真实入口（`.` / `./client`）。
+
+### 符号链接的坑
+
+`node_modules/@local/sapi-budget -> ../../../../../Documents/...` 这种相对链接，层级是按
+**`@local/` 目录内部**算的（5 层 `..`）。直接把它搬到 `node_modules/dsh-sapi-budget`
+（少一层目录）会解析到 `/Users/Documents` —— 而且 `ls` 报错之前 `readlink -f` 会先给你一个
+看起来合理的错误路径。**用绝对路径最省事**，或者改完立刻用 `ls -d` / `node -e require()`
+实测，别信 `readlink -f` 的输出。
+
+### 收录要求（已逐条核对）
+
+- `dsh.bundle` 声明 ✅（`{ patch: './cordis.patch.yml' }`，CI 从仓库根读）
+- 仓库创建满 1 天 ❌ **未满足**（2026-11-03T18:07Z 创建；CI 会拒，需等满 24h 再提）
+- 已加 `dsh-plugin` topic ✅
+- 描述必须与代码一致 ✅（逐条对过：3 条路由、1 个工具 `sapi_price`、两个插槽）
+- 一个 PR 最多 3 条 ✅（只提 1 条）
+- 只新增 `data/plugins/<owner>__<repo>.yml`，不手改 README ✅
+
+### 发布前清理（已完成）
+
+- `.refs/` 是上游官方文档的副本，**不再发布**（移到 `.refs-local/` 并 gitignore）
+- `.oracle-lineage.py` 里硬编码的 `/Users/lansterzhang/...` 改成读 `DSH_SESSIONS_DIR`
+- 补 `README.md` 与 `LICENSE`（MIT）
+
+### 端到端安装验证（做过，可重复）
+
+```sh
+cd /tmp && rm -rf t && mkdir t && cd t && printf '{"name":"t","version":"1.0.0","private":true}\n' > package.json
+"$NODE" "$PNPM" add "github:Lanstzz/sapi-budget"     # → + dsh-sapi-budget 0.1.0
+node -e "import('dsh-sapi-budget').then(m=>console.log(m.name, m.TOOL_NAME))"
+```
+
+`github:` 前缀是官方支持的写法：plugin-manager 源码里 `^github:` 会被替换成
+`https://github.com/`，并在安装前用 `git ls-remote` 探活。
+
+---
