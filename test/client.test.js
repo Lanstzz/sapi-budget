@@ -72,7 +72,7 @@ function loadClient() {
   new Function(source)();
   assert.equal(registered.length, 1, 'client.js must register exactly one module');
   const spec = registered[0];
-  assert.equal(spec.id, '@local/sapi-budget/client', 'module id must match the package');
+  assert.equal(spec.id, 'dsh-sapi-budget', 'module id must match the package name');
   assert.equal(typeof spec.factory, 'function', 'module must expose a lazy factory');
   const exported = spec.factory(fakeRequire);
   assert.ok(exported !== null && typeof exported === 'object', 'factory must return the module exports');

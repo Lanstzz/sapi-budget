@@ -1,6 +1,6 @@
 - insert:
     - id: sapi-budget
-      name: '@local/sapi-budget'
+      name: 'dsh-sapi-budget'
       config:
         baseUrl: https://aispot.swj0227.icu
         # 留空表示不在配置里写死分组：由客户端选择并持久化，

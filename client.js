@@ -18,7 +18,7 @@
  * and nothing else — no literal colours, no host class names.
  */
 window.__ModuleLoader__.load({
-  id: '@local/sapi-budget/client',
+  id: 'dsh-sapi-budget',
   factory: (require) => {
     const module = { exports: {} };
 

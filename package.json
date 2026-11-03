@@ -1,7 +1,7 @@
 {
-  "name": "@local/sapi-budget",
+  "name": "dsh-sapi-budget",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "description": "Sync AiSpot (sapi) group pricing and show per-turn and per-session cost.",
   "exports": {
@@ -30,5 +30,18 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lanstzz/sapi-budget.git"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "pricing",
+    "cost",
+    "aispot",
+    "sapi"
+  ]
 }

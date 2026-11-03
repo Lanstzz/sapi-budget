@@ -54,7 +54,7 @@
 | `.refs/` | 参考资料 | SKILL.md + references/ + templates/ |
 
 **已安装**：`~/.dsh/profiles/desktop/node_modules/@local/sapi-budget` 符号链接到工作目录；
-profile 的 `dsh.profile.bundles` 已含 `@local/sapi-budget`。
+profile 的 `dsh.profile.bundles` 已含 `@local/sapi-budget`（仓库对外发布时改名为 `dsh-sapi-budget`，见 §11）。
 **bundle 变更不热重载——改宿主侧 JS 后必须重启应用。**
 
 ### 自测命令

@@ -41,7 +41,7 @@ All optional. Set them in your profile patch (`cordis.patch.yml`):
 
 ```yaml
 - id: sapi-budget
-  name: '@local/sapi-budget'
+  name: 'dsh-sapi-budget'
   config:
     baseUrl: https://aispot.swj0227.icu   # any compatible deployment
     group: ''                             # '' = let the provider pick the cheapest
