@@ -1111,6 +1111,41 @@ window.__ModuleLoader__.load({
       },
       muted: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, lineHeight: '18px' },
       mark: { color: 'var(--dsw-alias-label-dimmed)', fontSize: 11, lineHeight: '18px' },
+      // The breakdown bubble. A child of its trigger rather than a portal: the
+      // chat body is a scroll container, so a `position: fixed` bubble would
+      // either escape with the scroll or need portal plumbing we cannot depend
+      // on (`document.body` writes are off limits for slot plugins). Absolute
+      // positioning inside the trigger keeps the bubble in the same stacking and
+      // scroll context as the chip it describes.
+      anchor: { position: 'relative', display: 'inline-flex', alignItems: 'center', flex: 'none' },
+      tooltip: {
+        position: 'absolute',
+        top: 'calc(100% + 6px)',
+        left: 0,
+        zIndex: 40,
+        // `display` is intentionally absent: the `hidden` attribute must stay
+        // authoritative. An inline `display` here would override the UA rule
+        // `[hidden] { display: none }` and leave the bubble permanently visible.
+        flexDirection: 'column',
+        gap: 2,
+        minWidth: 180,
+        maxWidth: 'min(60vw, 420px)',
+        padding: '6px 8px',
+        borderRadius: 'var(--dsw-radius-sm)',
+        background: 'var(--dsw-alias-tooltip-bg)',
+        color: 'var(--dsw-static-neutral-bluish-00)',
+        font: 'inherit',
+        fontSize: 12,
+        lineHeight: '18px',
+        whiteSpace: 'pre-wrap',
+        overflowWrap: 'break-word',
+        textAlign: 'left',
+        pointerEvents: 'none',
+      },
+      // The header chip sits at the right edge of the utilities row, so its
+      // bubble grows leftwards; anchored at `left: 0` it would run off-screen.
+      tooltipEnd: { left: 'auto', right: 0 },
+      tooltipLine: { display: 'block' },
       select: {
         flex: 'none',
         maxWidth: 168,
@@ -1143,6 +1178,119 @@ window.__ModuleLoader__.load({
     };
 
     // ── tooltips ────────────────────────────────────────────────────────────
+    /**
+     * How long the pointer must rest before a breakdown appears.
+     *
+     * This mirrors the platform's own Tooltip (`delayMs` 200–500 there). The
+     * delay is a *deliberate* resting period, not the multi-second stall a
+     * native `title` produced: once it fires, the bubble is already built and
+     * paints on the next frame.
+     */
+    const TOOLTIP_DELAY_MS = 300;
+
+    /** Bumps once per mounted tooltip, so every bubble gets a unique `id`. */
+    let tooltipSeq = 0;
+
+    /**
+     * Hover/focus state for one tooltip trigger.
+     *
+     * Returns `{ open, handlers, bubbleProps }`. The bubble is opened by a timer
+     * so a pointer merely crossing the chip does not flash it; it closes at once
+     * on leave, blur, Escape, or when the trigger is dismissed. Every pending
+     * timer is cleared on unmount, so a component that disappears mid-delay does
+     * not call `setState` afterwards.
+     *
+     * `useState` is read through `React` so the test harness's pass-through stub
+     * still works: these tests assert the rendered tree, not React's scheduling.
+     *
+     * @param lines - breakdown lines, one per bubble row.
+     */
+    function useTooltip(lines) {
+      const [open, setOpen] = React.useState(false);
+      const timer = React.useMemo(() => ({ id: null }), []);
+      // Stable per mounted component, so `aria-describedby` keeps pointing at
+      // this trigger's own bubble across re-renders.
+      const bubbleId = React.useMemo(() => `sapi-budget-tip-${tooltipSeq++}`, []);
+      const hasLines = Array.isArray(lines) && lines.length > 0;
+
+      const clear = React.useCallback(() => {
+        if (timer.id === null) return;
+        clearTimeout(timer.id);
+        timer.id = null;
+      }, [timer]);
+
+      const show = React.useCallback(() => {
+        clear();
+        if (!hasLines) return;
+        timer.id = setTimeout(() => {
+          timer.id = null;
+          setOpen(true);
+        }, TOOLTIP_DELAY_MS);
+      }, [clear, hasLines, timer]);
+
+      const hide = React.useCallback(() => {
+        clear();
+        setOpen(false);
+      }, [clear]);
+
+      React.useEffect(() => clear, [clear]);
+
+      const dismissOnKey = React.useCallback(
+        (event) => {
+          const key = event !== null && typeof event === 'object' ? event.key : undefined;
+          if (key === 'Escape') hide();
+        },
+        [hide],
+      );
+
+      return {
+        open: open === true && hasLines,
+        bubbleId,
+        handlers: {
+          onMouseEnter: show,
+          onMouseLeave: hide,
+          onFocus: show,
+          onBlur: hide,
+          onKeyDown: dismissOnKey,
+        },
+        bubbleProps: {
+          id: bubbleId,
+          role: 'tooltip',
+          // `hidden` keeps the bubble out of the accessibility tree and out of
+          // hit testing until it is actually shown.
+          hidden: !(open === true && hasLines),
+          style: styles.tooltip,
+        },
+      };
+    }
+
+    /**
+     * The breakdown bubble: one child per line.
+     *
+     * Rendered as a sibling *inside* the trigger element so it inherits the
+     * trigger's containing block. It carries `role="tooltip"` and is `hidden`
+     * until the hover delay elapses.
+     */
+    function tooltipBubble(tooltip, lines, key, alignEnd = false) {
+      const rows = Array.isArray(lines) ? lines : [];
+      const base = alignEnd ? { ...styles.tooltip, ...styles.tooltipEnd } : styles.tooltip;
+      // The layout property that makes the rows stack also decides visibility:
+      // `hidden` alone cannot win against an inline `display`, so both live here.
+      const style = tooltip.bubbleProps.hidden === true ? { ...base, display: 'none' } : { ...base, display: 'flex' };
+      return jsxs(
+        'span',
+        {
+          ...tooltip.bubbleProps,
+          style,
+          'data-sapi-budget': 'tooltip',
+          children: rows.map((line, index) =>
+            jsx('span', { style: styles.tooltipLine, children: line }, `line-${index}`),
+          ),
+        },
+        key,
+      );
+    }
+
     /** One bucket line: `输入 12 · 输出 34 · …`. */
     function tokenLine(t, bucket) {
       const tokens = bucket !== null && typeof bucket === 'object' ? bucket : {};
@@ -1228,48 +1376,76 @@ window.__ModuleLoader__.load({
       const snapshot = useCatalog();
       const projection = readProjection(props, PROJECTION_KEY);
       const turnNumber = turnNumberOf(props);
-      if (turnNumber === undefined) return null;
 
       const data = snapshot.data;
+      const summary = data === null || turnNumber === undefined ? undefined : summarizeTurn(projection, turnNumber, indexModels(data.models));
+
+      // Everything the bubble could say, computed before any early return so the
+      // hook below runs on every render. Hooks may not be called conditionally.
+      const lines = React.useMemo(() => {
+        if (data === null) {
+          const failed = snapshot.phase === 'error';
+          const text = failed ? t('turnCost.unknown') : t('turnCost.pending');
+          return [failed ? `${t('turnCost.unknown')} · ${t('error.unreachable')}` : text];
+        }
+        if (summary === undefined) return [];
+        if (summary.unresolved) {
+          const unknown = t('turnCost.unknown');
+          return [data.error !== null ? `${unknown} · ${t('error.unreachable')}` : unknown];
+        }
+        const rows = [t('turnCost.title')];
+        if (data.group !== '') rows.push(t('group.current', { name: data.group }));
+        rows.push(...breakdownLines(t, summary, data));
+        if (summary.estimated) rows.push(t('turnCost.approx'));
+        const updated = formatTimestamp(data.fetchedAt);
+        if (updated !== undefined) rows.push(t('detail.updated', { time: updated }));
+        return rows;
+      }, [data, snapshot.phase, summary, t]);
+
+      const tooltip = useTooltip(lines);
+
+      if (turnNumber === undefined) return null;
+
       if (data === null) {
         // No catalog yet. Distinguish "still fetching" from "the price service
         // will never answer" — a permanent spinner reads as a broken plugin,
         // and a Host older than the route registry cannot fix itself.
         const failed = snapshot.phase === 'error';
         const text = failed ? t('turnCost.unknown') : t('turnCost.pending');
-        const hint = failed ? `${t('turnCost.unknown')} · ${t('error.unreachable')}` : text;
         return jsxs(
           'span',
           {
             'data-sapi-budget': 'turn',
             'data-sapi-budget-pending': failed ? undefined : '',
             style: styles.row,
-            title: hint,
+            'aria-describedby': tooltip.bubbleId,
+            ...tooltip.handlers,
             children: [
               jsx('span', { style: styles.label, children: t('turnCost.title') }, 'label'),
               jsx('span', { style: styles.muted, children: text }, 'value'),
+              tooltipBubble(tooltip, lines, 'tooltip'),
             ],
           },
           'sapi-budget-turn',
         );
       }
 
-      const summary = summarizeTurn(projection, turnNumber, indexModels(data.models));
       if (summary === undefined) return null;
 
       if (summary.unresolved) {
         const unknown = t('turnCost.unknown');
-        const hint = data.error !== null ? `${unknown} · ${t('error.unreachable')}` : unknown;
         return jsxs(
           'span',
           {
             'data-sapi-budget': 'turn',
             'data-sapi-budget-unresolved': '',
             style: styles.row,
-            title: hint,
+            'aria-describedby': tooltip.bubbleId,
+            ...tooltip.handlers,
             children: [
               jsx('span', { style: styles.label, children: t('turnCost.title') }, 'label'),
               jsx('span', { style: styles.muted, children: unknown }, 'value'),
+              tooltipBubble(tooltip, lines, 'tooltip'),
             ],
           },
           'sapi-budget-turn',
@@ -1279,24 +1455,19 @@ window.__ModuleLoader__.load({
       const money = formatMoney(summary.usd, data.currency);
       if (money === undefined) return null;
 
-      const lines = [t('turnCost.title')];
-      if (data.group !== '') lines.push(t('group.current', { name: data.group }));
-      lines.push(...breakdownLines(t, summary, data));
-      if (summary.estimated) lines.push(t('turnCost.approx'));
-      const updated = formatTimestamp(data.fetchedAt);
-      if (updated !== undefined) lines.push(t('detail.updated', { time: updated }));
-
       return jsxs(
         'span',
         {
           'data-sapi-budget': 'turn',
           style: styles.row,
-          title: lines.join('\n'),
+          'aria-describedby': tooltip.bubbleId,
+          ...tooltip.handlers,
           children: [
             jsx('span', { style: styles.label, children: t('turnCost.title') }, 'label'),
             jsx('span', { style: styles.value, children: money }, 'value'),
             summary.estimated ? jsx('span', { style: styles.mark, children: t('turnCost.approx') }, 'approx') : null,
             summary.unknown > 0 ? jsx('span', { style: styles.mark, children: t('turnCost.unknown') }, 'unknown') : null,
+            tooltipBubble(tooltip, lines, 'tooltip'),
           ],
         },
         'sapi-budget-turn',
@@ -1381,6 +1552,10 @@ window.__ModuleLoader__.load({
       // A subtree that includes or omits unpriced sessions must say so, or the
       // number reads as a complete total when it is not.
       const showUnknown = subtree !== undefined && (subtree.allUnknown === true || subtree.unknownChildren > 0);
+
+      // The bubble content, resolved before the trigger element is built so the
+      // hook order is stable across every branch above.
+      const tooltip = useTooltip(lines);
       const chip = jsxs(
         'button',
         {
@@ -1390,8 +1565,9 @@ window.__ModuleLoader__.load({
           'data-sapi-budget-partial': showUnknown ? '' : undefined,
           'aria-busy': busy ? 'true' : undefined,
           'aria-label': busy ? t('group.refreshing') : t('group.refresh'),
+          'aria-describedby': tooltip.bubbleId,
           style: styles.chip,
-          title: lines.join('\n'),
+          ...tooltip.handlers,
           onClick: () => {
             catalog.refresh();
           },
@@ -1405,6 +1581,7 @@ window.__ModuleLoader__.load({
             !showUnknown && subtree !== undefined && subtree.estimated && !showChildren
               ? jsx('span', { style: styles.mark, children: '*' }, 'mark')
               : null,
+            tooltipBubble(tooltip, lines, 'tooltip', true),
           ],
         },
         'sapi-budget-session',

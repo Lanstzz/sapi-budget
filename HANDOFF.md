@@ -45,10 +45,11 @@
 | --- | --- | --- |
 | `pricing.js` | ✅ 663 行 | 手写 tokenizer + 递归下降解析器求值 `tiered_expr`，**无 `eval`/`new Function`** |
 | `index.js` | ✅ 已修 | 宿主半。价格服务 + 3 条路由 + `sapiCost` 投影 + `sapi_price` 工具 |
-| `client.js` | ✅ 完成 | 浏览器半。两个插槽 + 分组选择器 + 递归谱系合计 |
+| `client.js` | ✅ 完成 | 浏览器半。两个插槽 + 分组选择器 + 递归谱系合计 + 自绘提示浮层 |
 | `package.json` / `cordis.patch.yml` / `locale/{zh,en}.json` / `icon.svg` | ✅ | locale 两文件 key 对齐（各 37 个） |
 | `test/index.host.test.js` | ✅ **45/45** | 原 41 条 + 本次新增 4 条回归 |
-| `test/client.test.js` | ✅ **50/50** | |
+| `test/client.test.js` | ✅ **58/58** | 原 50 条 + 本次新增 8 条（提示浮层） |
+| `probe-tooltip.mjs` | ✅ exit 0 | 提示浮层的红绿探针：断言明细不再走原生 `title` |
 | `.oracle-lineage.py` | ✅ 独立对拍脚本 | 直接解压 session 日志算 token 树，不经过插件 |
 | `.refs/` | 参考资料 | SKILL.md + references/ + templates/ |
 
@@ -62,7 +63,8 @@ profile 的 `dsh.profile.bundles` 已含 `@local/sapi-budget`。
 cd /Users/lansterzhang/Documents/dsh-plugins/sapi-budget
 node --check index.js && node --check client.js && node --check pricing.js
 node --test test/index.host.test.js   # 期望 45 pass
-node --test test/client.test.js       # 期望 50 pass
+node --test test/client.test.js       # 期望 58 pass
+node probe-tooltip.mjs                # 期望 exit 0
 ```
 
 ---
@@ -170,13 +172,34 @@ NSToolTip** 接管，计时规则完全是系统级的（初始延迟 + 光标�
   `getBoundingClientRect` **尺寸真的变化**时才翻属性；对话头部是满宽 + `min-height:76px`
   的块级元素，胶囊改文案不会改它的 rect。→ 不会持续抖动。
 
-#### 修法（已定方向，未实施）
+#### 修法（**已实施**，2026-11-04）
 
-自绘浮层替代原生 `title`：`onMouseEnter` + `setTimeout(delayMs≈300)` 显示，
-`onMouseLeave`/`Escape`/点击 隐藏，`position: fixed` 按锚点 rect 定位并做视口翻转，
-复用 `--dsw-alias-tooltip-bg` 等 token，容器带 `role="tooltip"`。
-完全照抄平台 `$r`（Tooltip）的行为即可——但**不能 require 它**（见 §5.4），必须自己实现一份。
-工程量：新增约 120 行 + 单测；视觉无法验证（无浏览器控制权），需要用户肉眼看一眼。
+自绘浮层替代原生 `title`，全部在 `client.js` 内：
+
+- `useTooltip(lines)` —— 一个小 hook：`useState` 管开关、`useMemo` 持一个 timer 槽、
+  `useCallback` 包 `show`/`hide`/`dismissOnKey`；`useEffect` 在卸载时清 timer。
+  延迟 `TOOLTIP_DELAY_MS = 300`（平台自己的 Tooltip 用 200–500，取中值）。
+- `tooltipBubble(tooltip, lines, key, alignEnd)` —— 渲染 `role="tooltip"` 的 span，
+  一行一个子 span。**它是触发器的子元素，不是 portal**：`document.body` 写入是插槽插件
+  的红线（§5.4），而聊天区是滚动容器，`position: fixed` 会跟着滚走。
+- 触发器接 `...tooltip.handlers`（`onMouseEnter`/`onMouseLeave`/`onFocus`/`onBlur`/
+  `onKeyDown`）与 `aria-describedby={tooltip.bubbleId}`。
+- 头部那颗胶囊额外用 `styles.tooltipEnd` 右对齐：它在 utilities 行最右，
+  `left: 0` 会让 420px 宽的浮层冲出窗口右缘。
+- 分组下拉与 `<option>` 的 `title` **保留不动**：那是单行提示，不是多行明细，
+  不是本次症状的来源（有测试守着它保持单行）。
+
+三个实现陷阱（都有回归测试，且都做过变异验证——把修复改回去测试确实会红）：
+
+1. **`hidden` 属性打不过内联 `display`。** UA 的 `[hidden]{display:none}` 会被元素上
+   `style="display:flex"` 覆盖，浮层会永远可见而所有结构断言照样全绿。
+   现在 `display` 与可见性在 `tooltipBubble` 里一起决定，基础样式**故意不写 `display`**。
+2. **Hooks 不能放在提前 return 之后。** `TurnCostTail` 原本有 5 个提前返回；
+   所有 hook（含 `useMemo` 算好的 `lines`）都提到最前面，之后才分支渲染。
+3. **状态化测试需要状态化的 `useState`。** 共享桩是直通的，门控测试必须换成会真正
+   改值的桩（`withStatefulChip`），否则"打开"永远测不出来。
+
+测试：`test/client.test.js` 由 50 条增至 **58 条**（新增 8 条，全部围绕提示浮层），`probe-tooltip.mjs` 现在 **exit 0**。
 
 ---
 
@@ -280,11 +303,12 @@ node /tmp/extract.js "$APP/Contents/Resources/app.asar" "dsh-api-session-control
 
 ## 6. 下一步可做（按优先级，全部非阻塞）
 
-### P0 — tooltip 延迟（唯一有真实用户痛感的一项）
+### P0 — tooltip 延迟 —— ✅ 已修复（2026-11-04）
 
-根因已定位，见 **§3.4**：我们把多行明细塞进了原生 `title`，在 macOS 上由 Cocoa
-NSToolTip 计时，必然是"等一段时间"。修法是自绘浮层替掉 `title: lines.join('\n')`
-（client.js:1294 与 1394 两处）。这是目前**唯一**优先级高于视觉项的事。
+根因与修法见 **§3.4**。多行原生 `title` 已全部换成自绘浮层（300ms 后显示），
+`node probe-tooltip.mjs` 由 exit 1 变 exit 0。
+**剩下的只有肉眼验收**：亮/暗主题观感、贴右边缘会不会被窗口裁掉、
+头部胶囊与 turnTail 两处定位是否自然——无浏览器控制权，无法自测。
 
 ### P1 — 视觉/排版（两个 agent 都无法验证）
 

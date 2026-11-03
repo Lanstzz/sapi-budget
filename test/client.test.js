@@ -991,3 +991,267 @@ test('when every descendant is unknown the header falls back to own-only', () =>
   assert.ok(text.includes('turnCost.unknown'), 'the unknown descendants are flagged in the chip');
   assert.ok(!text.some((item) => String(item).includes('NaN')), 'never NaN');
 });
+
+// ── hover tooltip: the breakdown must NOT ride on a native title ────────────
+// On macOS an HTML `title` is served by Cocoa's NSToolTip, which restarts its
+// timer whenever the pointer moves inside the title rect. A 22px chip near the
+// header therefore made users wait seconds for the breakdown. The platform's own
+// UI never does this: it renders a React tooltip bubble. These tests pin that
+// behaviour down so the native title cannot come back.
+//
+// Element shape the tests rely on:
+//   <button data-sapi-budget="session" onMouseEnter onMouseLeave onFocus onBlur>
+//     ...chip contents...
+//     <span role="tooltip" data-sapi-budget-tooltip hidden?>one line per child</span>
+//   </button>
+// The bubble is a child, not a portal: `contain: strict` on the app root would
+// clip a `position: fixed` bubble anyway, so keeping it in-flow costs nothing
+// and keeps it reachable in the element tree.
+
+/** Find the first element in a rendered tree whose props match `predicate`. */
+function findByProp(tree, predicate) {
+  for (const entry of flattenTree(tree)) {
+    if (entry !== null && typeof entry === 'object' && entry.props && predicate(entry.props)) return entry;
+  }
+  return undefined;
+}
+
+/** Render the header chip for a session with a known two-model breakdown. */
+function renderHeaderChip() {
+  helpers.catalog.accept(wire());
+  helpers.catalog.setGroup('deepseek-HK');
+  const projection = {
+    turns: [
+      {
+        turn: 1,
+        models: [
+          { model: 'deepseek-v4.1-flash', input: 1000, output: 500, cacheRead: 100, cacheWrite: 0, requests: 1 },
+          { model: 'image-model', input: 0, output: 0, cacheRead: 0, cacheWrite: 0, requests: 2 },
+        ],
+      },
+    ],
+  };
+  return helpers.SessionCostUtilities({
+    sessionId: 'tooltip-session',
+    useProjection: () => projection,
+    t: (key, params) => (params === undefined ? key : `${key}:${JSON.stringify(params)}`),
+  });
+}
+
+test('the session chip publishes its breakdown through a tooltip element, not a native title', () => {
+  const chip = findByProp(renderHeaderChip(), (props) => props['data-sapi-budget'] === 'session');
+  assert.ok(chip !== undefined, 'the chip must render');
+
+  // The defect: a multi-line native title is what Cocoa timed.
+  assert.equal(chip.props.title, undefined, 'the chip must not use a native `title` any more');
+
+  const bubble = findByProp(chip, (props) => props.role === 'tooltip');
+  assert.ok(bubble !== undefined, 'the chip must own a role="tooltip" bubble');
+
+  // The breakdown text is still all there, one line per row.
+  const lines = flattenTree(bubble).filter((item) => typeof item === 'string');
+  assert.ok(
+    lines.some((line) => line.includes('detail.model') && line.includes('deepseek-v4.1-flash')),
+    `the bubble must list the model rows, saw: ${lines.join(' | ')}`,
+  );
+  assert.ok(
+    lines.some((line) => line.includes('detail.requests')),
+    'the bubble must keep the token detail line',
+  );
+  assert.ok(
+    lines.some((line) => line.includes('detail.total')),
+    'the bubble must keep the total line',
+  );
+});
+
+test('the tooltip is hidden until hover, and hover/focus both reveal it', () => {
+  const chip = findByProp(renderHeaderChip(), (props) => props['data-sapi-budget'] === 'session');
+  const bubble = findByProp(chip, (props) => props.role === 'tooltip');
+  assert.equal(bubble.props.hidden, true, 'the bubble starts hidden');
+  assert.equal(typeof chip.props.onMouseEnter, 'function', 'hovering the chip must be wired');
+  assert.equal(typeof chip.props.onMouseLeave, 'function', 'leaving the chip must be wired');
+  assert.equal(typeof chip.props.onFocus, 'function', 'keyboard focus must be wired too');
+});
+
+test('the turn tail uses the same tooltip treatment', () => {
+  helpers.catalog.accept(wire());
+  helpers.catalog.setGroup('deepseek-HK');
+  const projection = {
+    turns: [
+      { turn: 1, models: [{ model: 'deepseek-v4.1-flash', input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, requests: 1 }] },
+    ],
+  };
+  const tail = helpers.TurnCostTail({
+    turn: { kind: 'assistant', turn: 1 },
+    seq: 1,
+    useProjection: () => projection,
+    t: (key) => key,
+  });
+  assert.ok(tail !== null, 'the tail must render for a priced turn');
+  assert.equal(tail.props.title, undefined, 'the tail must not use a native `title` either');
+  const bubble = findByProp(tail, (props) => props.role === 'tooltip');
+  assert.ok(bubble !== undefined, 'the tail must own a role="tooltip" bubble');
+});
+
+test('the group picker keeps a native title: it is a one-line hint, not a breakdown', () => {
+  // The picker's title is a single short line. It is healthy: the delay the user
+  // reported is specific to multi-line breakdowns, so this stays as it was.
+  const picker = findByProp(renderHeaderChip(), (props) => props['data-sapi-budget'] === 'group');
+  assert.ok(picker !== undefined, 'the picker must render');
+  assert.equal(typeof picker.props.title, 'string', 'the picker keeps its single-line native title');
+  assert.ok(!picker.props.title.includes('\n'), 'and it must stay single-line');
+});
+
+// ── tooltip timing behaviour ────────────────────────────────────────────────
+// The rendered tree alone cannot prove the delay works, so serialise the
+// handlers: a controllable clock plus a stateful `useState` stub drives the real
+// component code through hover → reveal → leave → Escape.
+test('the tooltip waits for a rest, then opens; leave closes it and cancels', () => {
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  const timers = new Map();
+  let nextId = 1;
+  globalThis.setTimeout = (fn, ms) => {
+    const id = nextId++;
+    timers.set(id, { fn, ms });
+    return id;
+  };
+  globalThis.clearTimeout = (id) => timers.delete(id);
+
+  try {
+    withStatefulChip(({ component, chipOf }) => {
+      let chip = chipOf(component());
+      assert.equal(findByProp(component(), (p) => p.role === 'tooltip').props.hidden, true, 'starts hidden');
+
+      chip.props.onMouseEnter({});
+      assert.equal(timers.size, 1, 'hover arms exactly one timer');
+      assert.equal([...timers.values()][0].ms, 300, 'the rest period is 300ms, not the old multi-second stall');
+      assert.equal(
+        findByProp(component(), (p) => p.role === 'tooltip').props.hidden,
+        true,
+        'nothing shows before the rest period elapses — crossing the chip must not flash',
+      );
+
+      fireTimers(timers);
+      assert.equal(
+        findByProp(component(), (p) => p.role === 'tooltip').props.hidden,
+        false,
+        'after the delay the bubble is visible',
+      );
+
+      chip = chipOf(component());
+      chip.props.onMouseLeave({});
+      assert.equal(findByProp(component(), (p) => p.role === 'tooltip').props.hidden, true, 'leaving closes at once');
+      assert.equal(timers.size, 0, 'leaving cancels anything pending');
+
+      // Re-enter then leave before the delay: must not open at all.
+      chip.props.onMouseEnter({});
+      chip.props.onMouseLeave({});
+      fireTimers(timers);
+      assert.equal(
+        findByProp(component(), (p) => p.role === 'tooltip').props.hidden,
+        true,
+        'a cancelled hover must never open the bubble later',
+      );
+
+      // Escape closes an open bubble.
+      chip.props.onMouseEnter({});
+      fireTimers(timers);
+      assert.equal(findByProp(component(), (p) => p.role === 'tooltip').props.hidden, false, 'open again');
+      chipOf(component()).props.onKeyDown({ key: 'Escape' });
+      assert.equal(findByProp(component(), (p) => p.role === 'tooltip').props.hidden, true, 'Escape closes');
+    });
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    globalThis.clearTimeout = realClearTimeout;
+  }
+});
+
+/**
+ * Run `body` with a stateful `useState`, so hover state actually changes between
+ * renders. The shared stub is a pass-through, which is right for structural
+ * assertions but cannot prove open/closed.
+ *
+ * The stub stays installed for the whole body and is restored afterwards, so the
+ * component genuinely re-renders against the new value.
+ *
+ * @param body - receives `{ component, chipOf }`.
+ */
+function withStatefulChip(body) {
+  const realUseState = reactStub.useState;
+  let open = false;
+  reactStub.useState = () => [
+    open,
+    (next) => {
+      open = typeof next === 'function' ? next(open) : next;
+    },
+  ];
+  try {
+    helpers.catalog.accept(wire());
+    helpers.catalog.setGroup('deepseek-HK');
+    const projection = {
+      turns: [{ turn: 1, models: [{ model: 'deepseek-v4.1-flash', input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, requests: 1 }] }],
+    };
+    const component = () =>
+      helpers.SessionCostUtilities({ sessionId: 'behaviour', useProjection: () => projection, t: (key) => key });
+    const chipOf = (tree) => findByProp(tree, (props) => props['data-sapi-budget'] === 'session');
+    return body({ component, chipOf });
+  } finally {
+    reactStub.useState = realUseState;
+  }
+}
+
+/** Run every pending fake timer once, in scheduling order. */
+function fireTimers(timers) {
+  const pending = [...timers.entries()];
+  timers.clear();
+  for (const [, entry] of pending) entry.fn();
+}
+
+test('the trigger points at its own bubble through aria-describedby', () => {
+  const chip = findByProp(renderHeaderChip(), (props) => props['data-sapi-budget'] === 'session');
+  const bubble = findByProp(chip, (props) => props.role === 'tooltip');
+  assert.ok(typeof bubble.props.id === 'string' && bubble.props.id !== '', 'the bubble needs an id');
+  assert.equal(
+    chip.props['aria-describedby'],
+    bubble.props.id,
+    'the trigger must describe itself with its own bubble, not someone else’s',
+  );
+});
+
+test('the header bubble grows leftwards so it cannot run off the right edge', () => {
+  const chip = findByProp(renderHeaderChip(), (props) => props['data-sapi-budget'] === 'session');
+  const bubble = findByProp(chip, (props) => props.role === 'tooltip');
+  // The chip is the last thing in the header utilities row. Anchored at left:0
+  // a 420px-wide bubble would be clipped by the window edge.
+  assert.equal(bubble.props.style.right, 0, 'the header bubble anchors to the right edge');
+  assert.equal(bubble.props.style.left, 'auto', 'and must release the left anchor');
+});
+
+test('the hidden bubble is really hidden: display must follow visibility', () => {
+  // An inline `display: flex` beats the UA rule `[hidden] { display: none }`,
+  // so a bubble styled that way would be permanently visible on screen even
+  // though every structural assertion above passed. Pin the pairing down.
+  withStatefulChip(({ component, chipOf }) => {
+    const closed = findByProp(component(), (p) => p.role === 'tooltip');
+    assert.equal(closed.props.hidden, true, 'starts hidden');
+    assert.equal(closed.props.style.display, 'none', 'and is actually not rendered');
+
+    const chip = chipOf(component());
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (fn) => {
+      fn();
+      return 0;
+    };
+    globalThis.clearTimeout = () => {};
+    try {
+      chip.props.onMouseEnter({});
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+
+    const open = findByProp(component(), (p) => p.role === 'tooltip');
+    assert.equal(open.props.hidden, false, 'opens on hover');
+    assert.equal(open.props.style.display, 'flex', 'and is laid out when open');
+  });
+});
