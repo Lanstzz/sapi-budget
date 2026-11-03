@@ -1083,9 +1083,15 @@ window.__ModuleLoader__.load({
 
     // ── styles (theme tokens only) ──────────────────────────────────────────
     const styles = {
-      row: { display: 'inline-flex', alignItems: 'center', gap: 6, flex: 'none', minWidth: 0, whiteSpace: 'nowrap' },
+      // `position: relative` is load-bearing: the tooltip bubble is absolutely
+      // positioned inside this element, and without a positioned ancestor it
+      // would anchor to the initial containing block (the page corner) instead
+      // of to the chip it describes.
+      row: { position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, flex: 'none', minWidth: 0, whiteSpace: 'nowrap' },
       root: { display: 'flex', alignItems: 'center', gap: 8, flex: 'none', minWidth: 0 },
       chip: {
+        // Same reason as `row`: this is the containing block for the bubble.
+        position: 'relative',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 6,
@@ -1116,8 +1122,8 @@ window.__ModuleLoader__.load({
       // either escape with the scroll or need portal plumbing we cannot depend
       // on (`document.body` writes are off limits for slot plugins). Absolute
       // positioning inside the trigger keeps the bubble in the same stacking and
-      // scroll context as the chip it describes.
-      anchor: { position: 'relative', display: 'inline-flex', alignItems: 'center', flex: 'none' },
+      // scroll context as the chip it describes — provided the trigger itself is
+      // positioned, which `row` and `chip` above are.
       tooltip: {
         position: 'absolute',
         top: 'calc(100% + 6px)',

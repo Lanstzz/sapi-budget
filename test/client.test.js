@@ -1255,3 +1255,32 @@ test('the hidden bubble is really hidden: display must follow visibility', () =>
     assert.equal(open.props.style.display, 'flex', 'and is laid out when open');
   });
 });
+
+test('every tooltip trigger is itself positioned, or the bubble anchors to the page', () => {
+  // `position: absolute` resolves against the nearest positioned ancestor. With
+  // none, the bubble lands in the page corner instead of under its chip — and
+  // every structural assertion above still passes, because props look fine.
+  const chip = findByProp(renderHeaderChip(), (props) => props['data-sapi-budget'] === 'session');
+  const bubble = findByProp(chip, (props) => props.role === 'tooltip');
+  assert.equal(bubble.props.style.position, 'absolute', 'the bubble is absolutely positioned');
+  assert.equal(
+    chip.props.style.position,
+    'relative',
+    'so its trigger must establish the containing block',
+  );
+
+  helpers.catalog.accept(wire());
+  helpers.catalog.setGroup('deepseek-HK');
+  const projection = {
+    turns: [{ turn: 1, models: [{ model: 'deepseek-v4.1-flash', input: 1000, output: 0, cacheRead: 0, cacheWrite: 0, requests: 1 }] }],
+  };
+  const tail = helpers.TurnCostTail({
+    turn: { kind: 'assistant', turn: 1 },
+    seq: 1,
+    useProjection: () => projection,
+    t: (key) => key,
+  });
+  const tailBubble = findByProp(tail, (props) => props.role === 'tooltip');
+  assert.equal(tail.props.style.position, 'relative', 'the turn tail trigger needs it too');
+  assert.equal(tailBubble.props.style.position, 'absolute', 'and its bubble is absolute as well');
+});

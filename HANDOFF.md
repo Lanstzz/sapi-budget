@@ -48,7 +48,7 @@
 | `client.js` | ✅ 完成 | 浏览器半。两个插槽 + 分组选择器 + 递归谱系合计 + 自绘提示浮层 |
 | `package.json` / `cordis.patch.yml` / `locale/{zh,en}.json` / `icon.svg` | ✅ | locale 两文件 key 对齐（各 37 个） |
 | `test/index.host.test.js` | ✅ **45/45** | 原 41 条 + 本次新增 4 条回归 |
-| `test/client.test.js` | ✅ **58/58** | 原 50 条 + 本次新增 8 条（提示浮层） |
+| `test/client.test.js` | ✅ **59/59** | 原 50 条 + 本次新增 9 条（提示浮层） |
 | `probe-tooltip.mjs` | ✅ exit 0 | 提示浮层的红绿探针：断言明细不再走原生 `title` |
 | `.oracle-lineage.py` | ✅ 独立对拍脚本 | 直接解压 session 日志算 token 树，不经过插件 |
 | `.refs/` | 参考资料 | SKILL.md + references/ + templates/ |
@@ -63,7 +63,7 @@ profile 的 `dsh.profile.bundles` 已含 `@local/sapi-budget`。
 cd /Users/lansterzhang/Documents/dsh-plugins/sapi-budget
 node --check index.js && node --check client.js && node --check pricing.js
 node --test test/index.host.test.js   # 期望 45 pass
-node --test test/client.test.js       # 期望 58 pass
+node --test test/client.test.js       # 期望 59 pass
 node probe-tooltip.mjs                # 期望 exit 0
 ```
 
@@ -198,8 +198,12 @@ NSToolTip** 接管，计时规则完全是系统级的（初始延迟 + 光标�
    所有 hook（含 `useMemo` 算好的 `lines`）都提到最前面，之后才分支渲染。
 3. **状态化测试需要状态化的 `useState`。** 共享桩是直通的，门控测试必须换成会真正
    改值的桩（`withStatefulChip`），否则"打开"永远测不出来。
+4. **绝对定位必须有定位祖先。** 第一版把 `position:absolute` 加在浮层上，却没给触发器加
+   `position:relative`——浮层会钉到页面左上角。所有结构断言照样全绿，因为 props 看上去都对。
+   这是个自测抓不到、只能靠肉眼发现的缺陷，所以现在 `row` 与 `chip` 都带 `position:relative`，
+   且有测试断言"浮层 absolute ⇒ 触发器必须 relative"。
 
-测试：`test/client.test.js` 由 50 条增至 **58 条**（新增 8 条，全部围绕提示浮层），`probe-tooltip.mjs` 现在 **exit 0**。
+测试：`test/client.test.js` 由 50 条增至 **59 条**（新增 9 条，全部围绕提示浮层），`probe-tooltip.mjs` 现在 **exit 0**。
 
 ---
 
