@@ -1,6 +1,9 @@
 import json, subprocess, glob, os, collections
 
-D = os.path.expanduser('~/.dsh/sessions/--Users-lansterzhang-Documents-dsh-plugins-sapi-budget--')
+# Point this at the session store you want to check, e.g.
+#   D = os.path.expanduser('~/.dsh/sessions/--Users-me-Documents-my-project--')
+# The project directory name is the workspace path with `/` and `.` replaced.
+D = os.environ.get('DSH_SESSIONS_DIR', os.path.expanduser('~/.dsh/sessions'))
 
 def events(sid):
     p = os.path.join(D, sid, 'session.v4.jsonl.zstd')

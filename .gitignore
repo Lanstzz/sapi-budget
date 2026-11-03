@@ -7,3 +7,6 @@ node_modules/
 # Local scratch output
 *.log
 tmp/
+
+# Local reference notes (vendored upstream docs, not part of the plugin)
+.refs-local/
