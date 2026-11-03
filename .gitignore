@@ -10,3 +10,6 @@ tmp/
 
 # Local reference notes (vendored upstream docs, not part of the plugin)
 .refs-local/
+
+# Release scratch (submission copies)
+.release/
