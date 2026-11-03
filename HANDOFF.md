@@ -116,20 +116,67 @@ async list(_request, signal) {
 3. 两侧都对 → 故障必然在**接线**。此时不要读代码猜，直接给路由加**自描述诊断**，
    让运行时自己说出哪一环断了。一条 curl 就定位到根因。
 
-### 3.4 tooltip 16 秒延迟：不是代码问题，不要再查
+### 3.4 tooltip 延迟：根因已定位——我们用错了提示面（2026-11-04 修订）
 
-用户报告费用胶囊的原生提示偶尔要十几秒才出现。已用两个 Console 探针**排除**了代码原因：
+⚠️ **本小节此前写"不是代码问题，不要再查"，那是错的。** 它是代码问题，且原因很具体：
+**插座里该用自绘 Tooltip，我们用了原生 `title`。**
 
-- `title` 属性 10 秒内**变更 0 次** → 不是"标题内容刷新重置了提示计时器"；
-- `elementFromPoint` 命中链为 `span < button[sapi:session] < ...`，
-  `hover lands on chip = true`、`app-region = no-drag`、`pointer-events = auto`
-  → 没有被遮挡层吞掉 hover；
-- 10 秒后仍是**同一个 DOM 节点** → 不是重渲染重建节点。
+#### 结论一句话
 
-结论：这是 **Electron/Chromium 原生 `title` tooltip 平台行为**，同一组件里
-分组下拉的 title 又快又正常可以佐证（那是宿主布局的差异，不是本插件能控制的）。
-**若将来要彻底消除，方向是自绘 tooltip 替换原生 `title`**（属于新增 UI 面，需用户拍板，
-且当前没有浏览器控制权、无法做视觉验证——不要盲改）。
+平台所有"详细提示"都走自己的 `Tooltip` 组件（`delayMs` 200–500ms 的 React 浮层）；
+只有我们这个插件把多行明细塞进了 HTML `title`。在 macOS 上 HTML `title` 由 **Cocoa 的
+NSToolTip** 接管，计时规则完全是系统级的（初始延迟 + 光标一动就重置），不是网页 tooltip 语义。
+所以"要等一段时间"是必然，不是偶发。
+
+#### 证据链（全部实测，可复现）
+
+1. **原生 `title` 在 macOS 上走 Cocoa，不走 Chromium 自己的 tooltip。**
+   `Contents/Frameworks/Electron Framework.framework/Electron Framework` 里同时存在：
+   - `addToolTipRect:owner:userData:`
+   - `view:stringForToolTip:point:userData:`
+   - `setToolTip:`
+
+   这是 `RenderWidgetHostViewCocoa` 实现 `NSToolTipOwner` 协议的那一套。含义：HTML `title`
+   的文字由 Cocoa 在"鼠标停稳后"回调取走。**延迟由 Cocoa 决定，与 React、重渲染、DOM 节点
+   存活时间全都无关。** → 这也解释了旧探针为什么全部排除干净却什么也没找到：它测的三个量
+   根本不是这条通路的输入。
+
+2. **应用没有覆盖系统延迟。**
+   整个 `.app` 内 `NSInitialToolTipDelay` 出现 0 次；`defaults read -g NSInitialToolTipDelay`
+   也读不到 key。→ 用的是 macOS 出厂默认，无优化。
+
+3. **平台自己从不用多行原生 title。**
+   `dsh-client-ui-conversation/lib/client.js`：`Tooltip` 组件用了 **11 处**，
+   多行 `title: ....join('\n')` **0 处**。平台的多行明细一律交给 Tooltip 浮层，
+   其 CSS 带 `white-space:pre-line`（专为多行明细准备的）。
+   → 我们这两处 `title: lines.join('\n')`（client.js:1294 与 1394）**是全 UI 里唯一的
+   多行原生 title**。它不是"和宿主风格一致"，是独一份的异类。
+
+4. **Cocoa NSToolTip 的计时语义正是"等一段时间"的来源。**
+   初始延迟之后，只要光标在提示矩形内**有任何移动**（哪怕 1px），计时器就重置；
+   且同一块矩形短时间内离开再回来会二次延迟。胶囊只有 22px 高、又在用户拿鼠标去够的
+   头部位置，靠近时的微调几乎必然触发重置。这就是"偶尔要等十几秒"的机制：
+   **不是随机，是"手没停稳"**。老文档里"分组下拉的 title 很快"这个对照不成立——
+   `<option title>` 由原生菜单渲染，根本不走 HTML title 通路。
+
+#### 已排除的候选（省得下一个人再查一遍）
+
+- **不是重渲染 / 节点重建**：旧探针已证 10 秒内 title 变更 0 次、节点同一个。
+- **不是被遮挡层吞 hover**：`app-region = no-drag`。且 CSS 有全局兜底
+  `html[data-platform=darwin] :is(button,a,input,select,...){-webkit-app-region:no-drag}`，
+  `<button>` 永在拖拽区之外。
+- **不是 app-region 抖动**：`data-window-drag` 窗口拖拽召回机制（frontend bundle 里的
+  `data-window-drag-recall` + MutationObserver）只在 `[data-window-drag]` 元素的
+  `getBoundingClientRect` **尺寸真的变化**时才翻属性；对话头部是满宽 + `min-height:76px`
+  的块级元素，胶囊改文案不会改它的 rect。→ 不会持续抖动。
+
+#### 修法（已定方向，未实施）
+
+自绘浮层替代原生 `title`：`onMouseEnter` + `setTimeout(delayMs≈300)` 显示，
+`onMouseLeave`/`Escape`/点击 隐藏，`position: fixed` 按锚点 rect 定位并做视口翻转，
+复用 `--dsw-alias-tooltip-bg` 等 token，容器带 `role="tooltip"`。
+完全照抄平台 `$r`（Tooltip）的行为即可——但**不能 require 它**（见 §5.4），必须自己实现一份。
+工程量：新增约 120 行 + 单测；视觉无法验证（无浏览器控制权），需要用户肉眼看一眼。
 
 ---
 
@@ -233,6 +280,12 @@ node /tmp/extract.js "$APP/Contents/Resources/app.asar" "dsh-api-session-control
 
 ## 6. 下一步可做（按优先级，全部非阻塞）
 
+### P0 — tooltip 延迟（唯一有真实用户痛感的一项）
+
+根因已定位，见 **§3.4**：我们把多行明细塞进了原生 `title`，在 macOS 上由 Cocoa
+NSToolTip 计时，必然是"等一段时间"。修法是自绘浮层替掉 `title: lines.join('\n')`
+（client.js:1294 与 1394 两处）。这是目前**唯一**优先级高于视觉项的事。
+
 ### P1 — 视觉/排版（两个 agent 都无法验证）
 
 - 亮/暗主题下 token 的观感、12px 字号与 header 原生控件是否对齐
@@ -282,6 +335,15 @@ node /tmp/extract.js "$APP/Contents/Resources/app.asar" "dsh-api-session-control
    还都叫 `list`。**拿到任何跨模块返回值，先用一个探针打印 `Array.isArray` 和实际形状。**
 7. **推理死循环要立刻用行动打断。** 若发现自己开始重复同类句子，
    立即改做一件具体的、有副作用的动作（跑一条命令、读一个文件）。
+8. **"排除干净"有时意味着"测错了量"。** tooltip 那条教训最贵：旧探针把 title 变更次数、
+   DOM 节点同一性、hover 命中链全测了，全部排除，于是得出"不是代码问题"。
+   但那三个量**根本不是那条通路的输入**——`title` 在 macOS 上由 Cocoa NSToolTip 计时，
+   跟 React 一点关系都没有。排除法只在**候选集完备**时有效；先问"这个机制到底由谁驱动"，
+   再决定测什么。判断驱动方的最低成本手段：去二进制里找协议方法名
+   （`view:stringForToolTip:point:userData:` 一出现，答案就定了）。
+9. **遇到"平台能/我们不能"的差异，先对齐平台的做法，再谈平台限制。**
+   平台 11 处 Tooltip、0 处多行原生 title；我们 2 处多行原生 title、0 处 Tooltip。
+   当时把它解释成"宿主布局差异"，实际上是我们没照着平台写。
 
 ---
 
@@ -290,7 +352,13 @@ node /tmp/extract.js "$APP/Contents/Resources/app.asar" "dsh-api-session-control
 - 工作区：`/Users/lansterzhang/Documents/dsh-plugins/sapi-budget`（文件策略见 §5.5）
 - DSH profile：`/Users/lansterzhang/.dsh/profiles/desktop`（`DSH_PROFILE=desktop`，`DSH_HOME=~/.dsh`）
 - Node v26.13.0（`/opt/homebrew/bin/node`），macOS arm64，Asia/Shanghai
-- 应用：`/Applications/DeepSeek*.app`（**用 glob**），asar 在 `Contents/Resources/app.asar`
+- 应用：`/Applications/DeepSeek*.app`（**用 glob**；2026-11-04 实测实际名是
+  `DeepSeek Harness.app`，旧的 `DeepSeek Assistant.app` 已不存在，按字面量访问会 ENOENT），
+  asar 在 `Contents/Resources/app.asar`
+- Electron 44.7.0 / Chromium 152.0.7977.130；`CFBundleShortVersionString` 是 `0.2.1-rc.5`
+- macOS 原生 tooltip 通路：`Electron Framework` 内含 `view:stringForToolTip:point:userData:`
+  （`NSToolTipOwner` 协议），HTML `title` 由 Cocoa 计时，见 §3.4
+- 工作区已 `git init` 并有基线提交 `5eaadcc`（95/95 绿时快照），改动前可 `git diff` 回看
 - 团队：本会话有 Agent Teams。上一轮 `host-dev`（写 `index.js`）与 `client-dev`（写 `client.js`）
   并行，写入范围互不重叠——**这个切分方式效果好，可沿用**。
 - 无任何 API key / 密码 / 个人数据需要脱敏；三个端点都是公开免鉴权。
