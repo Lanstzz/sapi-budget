@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "title": "SAPI Price Helper",
+    "description": "Sync AiSpot group model pricing and show the cost of each turn and of the whole session."
+  },
+  "turnCost": {
+    "unknown": "Price unknown",
+    "pending": "Pricing…",
+    "approx": "estimate",
+    "title": "Turn cost"
+  },
+  "sessionCost": {
+    "label": "Session cost",
+    "empty": "No usage yet",
+    "estimated": "Includes estimates",
+    "withChildren": "incl. subagents",
+    "children": "{count} subagent(s)"
+  },
+  "group": {
+    "label": "Group",
+    "select": "Select current group",
+    "auto": "Auto (cheapest)",
+    "refresh": "Refresh prices",
+    "refreshing": "Refreshing…",
+    "current": "Current group: {name}",
+    "ratio": "ratio {ratio}",
+    "source": "Source: {url}"
+  },
+  "detail": {
+    "input": "Input",
+    "output": "Output",
+    "cacheRead": "Cache read",
+    "cacheWrite": "Cache write",
+    "requests": "Requests",
+    "model": "Model",
+    "group": "Group",
+    "total": "Total",
+    "unit": "Price / 1M tokens",
+    "perRequest": "Per request",
+    "updated": "Prices updated {time}"
+  },
+  "error": {
+    "unreachable": "Cannot reach the pricing service",
+    "noModels": "No models available in this group"
+  },
+  "lineage": {
+    "own": "own",
+    "subtree": "incl. downstream",
+    "running": "running",
+    "depth": "depth {depth}",
+    "none": "no subagents"
+  }
+}

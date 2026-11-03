@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "title": "SAPI 价格助手",
+    "description": "同步 AiSpot 供应商的分组模型价格，在每轮对话与会话标题栏显示费用。"
+  },
+  "turnCost": {
+    "unknown": "价格未知",
+    "pending": "计价中",
+    "approx": "估算",
+    "title": "本轮费用"
+  },
+  "sessionCost": {
+    "label": "会话费用",
+    "empty": "暂无用量",
+    "estimated": "包含估算项",
+    "withChildren": "含子代理",
+    "children": "子代理 {count} 个"
+  },
+  "group": {
+    "label": "分组",
+    "select": "选择当前分组",
+    "auto": "自动（最便宜）",
+    "refresh": "刷新价格",
+    "refreshing": "刷新中…",
+    "current": "当前分组：{name}",
+    "ratio": "倍率 {ratio}",
+    "source": "数据来源：{url}"
+  },
+  "detail": {
+    "input": "输入",
+    "output": "输出",
+    "cacheRead": "缓存读取",
+    "cacheWrite": "缓存写入",
+    "requests": "请求数",
+    "model": "模型",
+    "group": "分组",
+    "total": "合计",
+    "unit": "单价 / 百万 tokens",
+    "perRequest": "每次请求",
+    "updated": "价格更新于 {time}"
+  },
+  "error": {
+    "unreachable": "无法连接价格服务",
+    "noModels": "该分组没有可用模型"
+  },
+  "lineage": {
+    "own": "自身",
+    "subtree": "含下游",
+    "running": "运行中",
+    "depth": "层级 {depth}",
+    "none": "没有子代理"
+  }
+}

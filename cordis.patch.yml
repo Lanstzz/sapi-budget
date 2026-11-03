@@ -1,0 +1,10 @@
+- insert:
+    - id: sapi-budget
+      name: '@local/sapi-budget'
+      config:
+        baseUrl: https://aispot.swj0227.icu
+        # 留空表示不在配置里写死分组：由客户端选择并持久化，
+        # 宿主仅在未指定时回退到最便宜的分组。
+        group: ''
+        currency: USD
+        refreshMinutes: 30

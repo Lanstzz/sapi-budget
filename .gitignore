@@ -1,0 +1,9 @@
+# Dependencies
+node_modules/
+
+# OS noise
+.DS_Store
+
+# Local scratch output
+*.log
+tmp/
