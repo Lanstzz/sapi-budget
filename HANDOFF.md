@@ -421,7 +421,10 @@ node /tmp/extract.js "$APP/Contents/Resources/app.asar" "dsh-api-session-control
 ### 状态
 
 - 公开仓库：**https://github.com/Lanstzz/sapi-budget**（public，默认分支 `main`，已加 `dsh-plugin` topic）
-- awesome-dsh-plugin 投稿条目：`data/plugins/Lanstzz__sapi-budget.yml`，`category: usage`
+- awesome-dsh-plugin 投稿：**PR #12117 已提交并 CI 通过**
+  https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/12117
+  条目 `data/plugins/Lanstzz__sapi-budget.yml`，`category: usage`，1 文件 +6 行
+- 本地投稿材料与流程：`.release/`（已 gitignore）
 - 包名从 `@local/sapi-budget` 改为 **`dsh-sapi-budget`**（`@local/*` 是私有 scope，别人装不上）
 
 ### 改名引发的连带修改（**做同类改名时照抄这张清单**）
