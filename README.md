@@ -35,6 +35,12 @@ dsh plugin add /absolute/path/to/sapi-budget
 
 Then restart the app: the bundle is loaded at startup.
 
+Runs on macOS, Windows and Linux. There is no platform branch anywhere in the
+plugin: the host half is plain JavaScript that registers routes and a session
+projection and writes nothing to disk, pricing comes from public HTTP endpoints,
+and the stored group choice lives in the browser's `localStorage`. The UI uses
+only theme tokens, so it follows the host's light and dark palettes.
+
 ## Configuration
 
 All optional. Set them in your profile patch (`cordis.patch.yml`):
